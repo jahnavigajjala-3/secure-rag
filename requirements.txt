@@ -1,0 +1,11 @@
+chromadb
+sentence-transformers
+google-genai
+python-dotenv
+fastapi
+uvicorn
+pydantic
+psycopg[binary]
+bcrypt
+PyJWT
+python-multipart

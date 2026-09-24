@@ -1,0 +1,39 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: securerag_postgres
+    environment:
+      POSTGRES_USER: securerag
+      POSTGRES_PASSWORD: securerag_password
+      POSTGRES_DB: secure_rag
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securerag -d secure_rag"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: securerag_backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://securerag:securerag_password@postgres:5432/secure_rag
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-secure_rag_jwt_secret_key_change_in_production}
+      ADMIN_SIGNUP_KEY: ${ADMIN_SIGNUP_KEY:-secure_rag_admin_invite_2026}
+      GEMINI_API_KEY: ${GEMINI_API_KEY}
+      ALLOWED_ORIGINS: "*"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
