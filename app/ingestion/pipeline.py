@@ -57,7 +57,12 @@ def ingest_document_by_id(
             embeddings = embed_texts(texts)
 
             # 5. Insert into ChromaDB (upsert with stable chunk IDs)
-            add_chunks(chunks, embeddings)
+            add_chunks(
+                doc.id,
+                texts,
+                embeddings,
+                chunk_ids=[c["chunk_id"] for c in chunks],
+            )
 
             # Only mark chunk count after successful upsert
             doc.chunk_count = len(chunks)
