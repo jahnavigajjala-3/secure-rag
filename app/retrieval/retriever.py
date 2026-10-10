@@ -1,10 +1,10 @@
 import logging
 from typing import Any, Dict, List, Optional
 import numpy as np
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.database.models import Document, Role, User, document_roles, user_roles
-from app.vectorstore.store import get_collection
 
 # Import local Hugging Face sentence-transformers model directly
 from sentence_transformers import SentenceTransformer
@@ -90,51 +90,61 @@ def select_best_document_id(
 
 
 def retrieve(
+    db: Session,
     query: str,
     top_k: int = 5,
     distance_threshold: Optional[float] = None,
-    where: Optional[Dict[str, Any]] = None,
-    collection_name: str = "chunks",
+    target_doc_ids: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
     """
-    Low-level vector similarity search against ChromaDB collection.
+    Low-level vector similarity search against PostgreSQL pgvector table.
     """
-    collection = get_collection(name=collection_name)
     query_vector = embed_text(query)
 
-    query_args: Dict[str, Any] = {
-        "query_embeddings": [query_vector],
-        "n_results": top_k,
-        "include": ["documents", "metadatas", "distances"],
+    # Base SQL query using pgvector cosine distance operator (<=>)
+    sql = """
+        SELECT 
+            id,
+            document_id,
+            chunk_index,
+            content,
+            1 - (embedding <=> :query_embedding::vector) AS distance
+        FROM document_chunks
+    """
+
+    params: Dict[str, Any] = {
+        "query_embedding": str(query_vector),
+        "top_k": top_k,
     }
 
-    if where:
-        query_args["where"] = where
+    if target_doc_ids:
+        # Cast string IDs if your document_id column is integer or UUID
+        sql += " WHERE document_id = ANY(:target_doc_ids)"
+        params["target_doc_ids"] = target_doc_ids
 
-    results = collection.query(**query_args)
+    sql += " ORDER BY embedding <=> :query_embedding::vector LIMIT :top_k;"
+
+    result = db.execute(text(sql), params).mappings().all()
 
     retrieved: List[Dict[str, Any]] = []
+    for row in result:
+        row_dict = dict(row)
+        dist = row_dict.get("distance", 0.0)
 
-    if not results or not results.get("ids") or not results["ids"][0]:
-        return retrieved
-
-    ids = results["ids"][0]
-    docs = results["documents"][0] if results.get("documents") else []
-    metas = results["metadatas"][0] if results.get("metadatas") else []
-    distances = results["distances"][0] if results.get("distances") else []
-
-    for i in range(len(ids)):
-        dist = distances[i] if i < len(distances) else 0.0
-
+        # In pgvector cosine distance: distance ranges from 0 (identical) to 2.
+        # If distance_threshold is passed, filter out chunks above threshold.
         if distance_threshold is not None and dist > distance_threshold:
             continue
 
         retrieved.append(
             {
-                "chunk_id": ids[i],
-                "text": docs[i] if i < len(docs) else "",
+                "chunk_id": str(row_dict["id"]),
+                "text": row_dict["content"],
                 "distance": dist,
-                "metadata": metas[i] if i < len(metas) else {},
+                "metadata": {
+                    "document_id": str(row_dict["document_id"]),
+                    "chunk_index": row_dict["chunk_index"],
+                },
             }
         )
 
@@ -148,14 +158,12 @@ def retrieve_for_user(
     top_k: int = 5,
     distance_threshold: Optional[float] = None,
     document_id: Optional[str] = None,
-    collection_name: str = "chunks",
 ) -> List[Dict[str, Any]]:
     """
     Security-enforced & Document-routed retrieval:
     1. Resolve accessible document IDs via PostgreSQL RBAC.
     2. If an explicit document_id is passed, verify authorization.
-    3. If multiple documents exist, semantically route query to the single best document.
-    4. Query ChromaDB filtered strictly to that document_id.
+    3. Query PostgreSQL pgvector filtered strictly to authorized document_ids.
     """
     allowed_doc_ids = get_user_accessible_document_ids(user, db)
     if not allowed_doc_ids:
@@ -167,26 +175,17 @@ def retrieve_for_user(
                 f"[RBAC BLOCK] User {user.id} denied access to document {document_id}"
             )
             return []
-        target_doc_id = str(document_id)
-
-    elif len(allowed_doc_ids) == 1:
-        target_doc_id = allowed_doc_ids[0]
-
+        target_doc_ids = [str(document_id)]
     else:
-        accessible_docs = (
-            db.query(Document)
-            .filter(Document.id.in_(allowed_doc_ids))
-            .filter(Document.status != "FAILED")
-            .all()
-        )
-        target_doc_id = select_best_document_id(query, accessible_docs)
+        target_doc_ids = [str(doc_id) for doc_id in allowed_doc_ids]
 
-    where_filter = {"document_id": target_doc_id}
+    if not target_doc_ids:
+        return []
 
     return retrieve(
+        db=db,
         query=query,
         top_k=top_k,
         distance_threshold=distance_threshold,
-        where=where_filter,
-        collection_name=collection_name,
+        target_doc_ids=target_doc_ids,
     )
