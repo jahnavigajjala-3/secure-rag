@@ -70,7 +70,7 @@ def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, An
     """
     if not retrieved_chunks:
         return {
-            "answer": "I cannot answer this question based on your accessible documents because no relevant information was found.",
+            "answer": "I couldn't find enough information in your authorized documents to answer that.",
             "sources": [],
             "grounded": False
         }
@@ -83,27 +83,29 @@ def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, An
         meta = chunk.get("metadata", {})
         doc_id = meta.get("document_id", "unknown_doc")
         filename = meta.get("filename", meta.get("source", "unknown_file"))
-        page = meta.get("page", 1)
-        chunk_id = chunk.get("chunk_id", f"{doc_id}_chunk_{idx}")
+        page = meta.get("page", meta.get("page_number"))
+        chunk_index = meta.get("chunk_index", 0)
+        chunk_id = chunk.get("chunk_id", f"{doc_id}:{idx}")
         dist = float(chunk.get("distance", 0.0))
         rel_score = round(max(0.0, min(1.0, 1.0 - dist)), 4)
 
-        context_blocks.append(f"[Source {idx}] ({filename}, Page {page}):\n{text}")
+        context_blocks.append(f"[Document: {filename} | Page: {page if page is not None else 'n/a'} | Chunk: {chunk_index}]\n{text}")
 
         if chunk_id not in sources_map:
             sources_map[chunk_id] = {
                 "document_id": str(doc_id),
+                "document_name": str(filename),
                 "filename": str(filename),
-                "page": int(page) if isinstance(page, (int, str)) and str(page).isdigit() else 1,
+                "page": int(page) if isinstance(page, (int, str)) and str(page).isdigit() else None,
+                "chunk_index": int(chunk_index) if isinstance(chunk_index, (int, str)) and str(chunk_index).isdigit() else 0,
                 "chunk_id": str(chunk_id),
                 "relevance_score": rel_score
             }
 
     answer_text = generate_answer(query, context_blocks)
-    
-    # Check if answer indicates not found
+
     answer_lower = answer_text.lower()
-    is_grounded = not ("cannot be found" in answer_lower or "not found" in answer_lower)
+    is_grounded = not ("cannot be found" in answer_lower or "not found" in answer_lower or "not enough information" in answer_lower)
 
     return {
         "answer": answer_text,
