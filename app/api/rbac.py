@@ -21,7 +21,13 @@ def create_user(user_in: UserCreate, db: Session = Depends(get_db)):
             detail=f"User with username '{user_in.username}' already exists."
         )
 
-    new_user = User(username=user_in.username)
+    email = user_in.email or f"{user_in.username}@example.com"
+    new_user = User(
+        username=user_in.username,
+        email=email,
+        full_name=user_in.full_name or user_in.username,
+        password_hash="placeholder-password-not-used",
+    )
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
