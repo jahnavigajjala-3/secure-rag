@@ -1,3 +1,4 @@
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Optional, List
@@ -6,6 +7,9 @@ from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Table, Co
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.database import Base
+from app.config import settings
+
+EMBEDDING_DIMENSION = settings.EMBEDDING_DIMENSION
 
 user_roles = Table(
     "user_roles",
@@ -286,7 +290,7 @@ class DocumentChunk(Base):
 
     # Adjust the dimension (e.g. 768, 1024, or 1536) to match your embedding model
     embedding: Mapped[list[float]] = mapped_column(
-        Vector(1024),
+        Vector(EMBEDDING_DIMENSION),
         nullable=False,
     )
 
