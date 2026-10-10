@@ -26,8 +26,7 @@ def get_genai_client() -> Optional[genai.Client]:
 
 def generate_answer(query: str, context_chunks: List[str]) -> str:
     """
-    Generate grounded answer using Gemini 3.6 Flash via google-genai Interactions API.
-    Enforces strict context grounding.
+    Generate grounded answer using Gemini if configured; otherwise synthesize from retrieved context.
     """
     if not context_chunks:
         return "I cannot answer this question based on your accessible documents because no relevant information was found."
@@ -52,16 +51,21 @@ Question:
     client = get_genai_client()
     if client:
         try:
-            interaction = client.interactions.create(
-                model="gemini-3.6-flash",
-                input=prompt
+            interaction = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt,
             )
-            return interaction.output_text
+            answer = getattr(interaction, "text", None) or str(interaction)
+            return answer
         except Exception as e:
             print(f"Warning: Gemini API call failed ({e}). Falling back to grounded context synthesis.")
 
     # Grounded fallback synthesis when API key is unconfigured or offline
-    return f"Based on your accessible documents:\n" + "\n".join(context_chunks)
+    synthesis = "Based on your accessible documents:\n"
+    for chunk in context_chunks[:5]:
+        summary = chunk.strip().replace("\n", " ")
+        synthesis += f"- {summary[:400]}\n"
+    return synthesis
 
 
 def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -82,7 +86,7 @@ def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, An
         text = chunk.get("text", "").strip()
         meta = chunk.get("metadata", {})
         doc_id = meta.get("document_id", "unknown_doc")
-        filename = meta.get("filename", meta.get("source", "unknown_file"))
+        filename = meta.get("filename") or meta.get("document_name") or meta.get("source") or "unknown_file"
         page = meta.get("page", meta.get("page_number"))
         chunk_index = meta.get("chunk_index", 0)
         chunk_id = chunk.get("chunk_id", f"{doc_id}:{idx}")
@@ -99,7 +103,8 @@ def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, An
                 "page": int(page) if isinstance(page, (int, str)) and str(page).isdigit() else None,
                 "chunk_index": int(chunk_index) if isinstance(chunk_index, (int, str)) and str(chunk_index).isdigit() else 0,
                 "chunk_id": str(chunk_id),
-                "relevance_score": rel_score
+                "relevance_score": rel_score,
+                "text": text,
             }
 
     answer_text = generate_answer(query, context_blocks)
