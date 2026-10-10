@@ -4,13 +4,15 @@ import { queryRAG } from '../../api/client';
 import { Send, Bot, User, FileText, Loader2, Sparkles } from 'lucide-react';
 
 export interface SourceCitation {
+  document_id: string;
+  document_name?: string;
+  filename?: string;
+  page?: number;
+  chunk_index?: number;
   chunk_id: string;
-  text: string;
-  distance: number;
-  metadata: {
-    document_id: string;
-    chunk_index: number;
-  };
+  relevance_score?: number;
+  text?: string;
+  distance?: number;
 }
 
 export interface QueryResponse {
@@ -113,9 +115,12 @@ export default function AskAIPage() {
                         >
                           <div className="flex items-center gap-1.5 font-medium text-indigo-600">
                             <FileText className="w-3.5 h-3.5" />
-                            <span>Document ID: {src.metadata.document_id} (Chunk {src.metadata.chunk_index})</span>
+                            <span>
+                              Document ID: {src.document_id || src.document_name || 'unknown'}
+                              {src.chunk_index != null ? ` (Chunk ${src.chunk_index})` : ''}
+                            </span>
                           </div>
-                          <p className="text-slate-600 line-clamp-2">{src.text}</p>
+                          <p className="text-slate-600 line-clamp-2">{src.text || src.filename || 'No source text available.'}</p>
                         </div>
                       ))}
                     </div>
