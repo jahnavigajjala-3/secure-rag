@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
 from app.auth.security import create_access_token, hash_password, verify_password
+from app.config import settings
 from app.database.database import get_db
 from app.database.models import Role, User
 from app.schemas.auth import (
@@ -18,7 +19,10 @@ from app.services.audit import create_audit_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
-ADMIN_SIGNUP_KEY = os.getenv("ADMIN_SIGNUP_KEY", os.getenv("ADMIN_INVITATION_CODE", "secure_rag_admin_invite_2026"))
+
+def get_admin_signup_key() -> str:
+    value = getattr(settings, "ADMIN_SIGNUP_KEY", "") or ""
+    return str(value).strip()
 
 
 def get_user_primary_role(user: User) -> str:
@@ -118,7 +122,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db), http_reque
     requested_role = str(request.account_type or "employee").strip().lower()
     admin_key = request.admin_access_key
     if requested_role == "admin":
-        if not admin_key or admin_key != ADMIN_SIGNUP_KEY:
+        if not admin_key or admin_key != get_admin_signup_key():
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid administrator access key.")
     else:
         requested_role = "employee"
@@ -183,7 +187,7 @@ def register(request: RegisterRequest, db: Session = Depends(get_db), http_reque
 
 @router.post("/register-admin", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
 def register_admin(request: AdminRegisterRequest, db: Session = Depends(get_db), http_request: Request = None):
-    if request.invitation_code != ADMIN_SIGNUP_KEY:
+    if request.invitation_code.strip() != get_admin_signup_key():
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid administrator access key.")
 
     email_clean = request.email.strip().lower()
