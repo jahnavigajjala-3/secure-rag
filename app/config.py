@@ -38,6 +38,7 @@ class Settings:
         self.CHROMA_HOST = os.getenv("CHROMA_HOST", "localhost")
         self.CHROMA_PORT = int(os.getenv("CHROMA_PORT", "8000"))
         self.GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+        self.EMBEDDING_DIMENSION = int(os.getenv("EMBEDDING_DIMENSION") or "384")
         self.UPLOAD_DIRECTORY = Path(os.getenv("UPLOAD_DIRECTORY", "./data/documents")).resolve()
 
     def is_production(self) -> bool:
