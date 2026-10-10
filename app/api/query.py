@@ -46,10 +46,22 @@ def execute_authorized_rag_query(
         retrieved_chunks=retrieved_chunks
     )
 
+    citations = []
+    for source in rag_result["sources"]:
+        citations.append({
+            "document_id": source.get("document_id"),
+            "document_name": source.get("document_name") or source.get("filename"),
+            "filename": source.get("filename"),
+            "page": source.get("page"),
+            "chunk_index": source.get("chunk_index"),
+            "chunk_id": source.get("chunk_id"),
+            "relevance_score": source.get("relevance_score", 0.0),
+        })
+
     return QueryResponse(
         query=payload.query,
         answer=rag_result["answer"],
-        sources=rag_result["sources"],
+        sources=citations,
         grounded=rag_result["grounded"],
         retrieved_chunk_count=len(retrieved_chunks)
     )
