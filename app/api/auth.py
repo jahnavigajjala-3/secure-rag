@@ -1,31 +1,27 @@
 import os
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-from app.database.database import get_db
-from app.database.models import User, Role
-from app.auth.security import verify_password, hash_password, create_access_token
 from app.auth.dependencies import get_current_user
+from app.auth.security import create_access_token, hash_password, verify_password
+from app.database.database import get_db
+from app.database.models import Role, User
 from app.schemas.auth import (
+    AdminRegisterRequest,
     LoginRequest,
     RegisterRequest,
-    AdminRegisterRequest,
+    RegisterResponse,
     TokenResponse,
     UserAuthResponse,
-    RegisterResponse,
 )
+from app.services.audit import create_audit_service
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 ADMIN_SIGNUP_KEY = os.getenv("ADMIN_SIGNUP_KEY", os.getenv("ADMIN_INVITATION_CODE", "secure_rag_admin_invite_2026"))
-ADMIN_INVITATION_CODE = ADMIN_SIGNUP_KEY
 
 
 def get_user_primary_role(user: User) -> str:
-    """
-    Helper to extract primary role string compatible with RBAC setup.
-    """
     if not user.roles:
         return "employee"
     role_names = [r.name.lower() for r in user.roles]
@@ -35,9 +31,6 @@ def get_user_primary_role(user: User) -> str:
 
 
 def generate_unique_username(email: str, db: Session) -> str:
-    """
-    Generate a unique username from email prefix.
-    """
     base_username = email.split("@")[0].replace(".", "_").replace("-", "_")
     username = base_username
     counter = 1
@@ -48,17 +41,40 @@ def generate_unique_username(email: str, db: Session) -> str:
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(request: LoginRequest, db: Session = Depends(get_db)):
-    """
-    Authenticate user with email and password, returning JWT access token.
-    """
+def login(request: LoginRequest, db: Session = Depends(get_db), http_request: Request = None):
     email_clean = request.email.strip().lower()
     user = db.query(User).filter(User.email == email_clean).first()
     if not user or not user.password_hash or not verify_password(request.password, user.password_hash):
+        audit = create_audit_service(db)
+        audit.record(
+            action="AUTH_LOGIN_FAILURE",
+            status="FAILURE",
+            metadata={"email": email_clean, "reason": "invalid_credentials"},
+            ip_address=http_request.client.host if http_request and http_request.client else None,
+            user_agent=http_request.headers.get("user-agent") if http_request else None,
+        )
+        db.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="The email or password you entered is incorrect.",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user.is_active:
+        audit = create_audit_service(db)
+        audit.record(
+            action="AUTH_LOGIN_FAILURE",
+            status="FAILURE",
+            resource_type="user",
+            resource_id=user.id,
+            metadata={"email": email_clean, "reason": "inactive_user"},
+            ip_address=http_request.client.host if http_request and http_request.client else None,
+            user_agent=http_request.headers.get("user-agent") if http_request else None,
+        )
+        db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="This account is inactive.",
         )
 
     role_str = get_user_primary_role(user)
@@ -70,6 +86,18 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
             "role": role_str,
         }
     )
+
+    audit = create_audit_service(db)
+    audit.record(
+        action="AUTH_LOGIN_SUCCESS",
+        actor_user_id=user.id,
+        resource_type="user",
+        resource_id=user.id,
+        metadata={"role": role_str},
+        ip_address=http_request.client.host if http_request and http_request.client else None,
+        user_agent=http_request.headers.get("user-agent") if http_request else None,
+    )
+    db.commit()
 
     return TokenResponse(
         access_token=access_token,
@@ -83,14 +111,17 @@ def login(request: LoginRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register(request: RegisterRequest, db: Session = Depends(get_db)):
-    """
-    Unified account registration endpoint supporting Employee and Administrator creation.
-    Administrator account creation requires server-side validation of admin_access_key against ADMIN_SIGNUP_KEY.
-    """
-    # 1. Input Validation
+def register(request: RegisterRequest, db: Session = Depends(get_db), http_request: Request = None):
     if not request.name or not request.name.strip():
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Full name is required.")
+
+    requested_role = str(request.account_type or "employee").strip().lower()
+    admin_key = request.admin_access_key
+    if requested_role == "admin":
+        if not admin_key or admin_key != ADMIN_SIGNUP_KEY:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid administrator access key.")
+    else:
+        requested_role = "employee"
 
     email_clean = request.email.strip().lower()
     if "@" not in email_clean or "." not in email_clean:
@@ -102,42 +133,25 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     if request.confirm_password is not None and request.password != request.confirm_password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Password confirmation does not match.")
 
-    # 2. Check Email Uniqueness
     existing_user = db.query(User).filter(User.email == email_clean).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists."
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
 
-    # 3. Determine Requested Role & Validate Admin Key Server-side
-    account_type_clean = (request.account_type or "employee").strip().lower()
-    if account_type_clean in ["admin", "administrator"]:
-        if not request.admin_access_key or request.admin_access_key != ADMIN_SIGNUP_KEY:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Invalid administrator access key."
-            )
-        target_role_name = "admin"
-        success_msg = "Administrator account created successfully. Please sign in."
-    else:
-        target_role_name = "employee"
-        success_msg = "Account created successfully. Please sign in."
-
-    # 4. Role Retrieval/Creation
+    target_role_name = requested_role
     target_role = db.query(Role).filter(Role.name == target_role_name).first()
     if not target_role:
         target_role = Role(name=target_role_name)
         db.add(target_role)
         db.commit()
 
-    # 5. Create User Record
     username = generate_unique_username(email_clean, db)
     new_user = User(
         name=request.name.strip(),
+        full_name=request.name.strip(),
         username=username,
         email=email_clean,
         password_hash=hash_password(request.password),
+        is_active=True,
     )
     new_user.roles.append(target_role)
 
@@ -145,8 +159,20 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_user)
 
+    audit = create_audit_service(db)
+    audit.record(
+        action="USER_CREATED",
+        actor_user_id=new_user.id,
+        resource_type="user",
+        resource_id=new_user.id,
+        metadata={"email": new_user.email, "role": target_role_name},
+        ip_address=http_request.client.host if http_request and http_request.client else None,
+        user_agent=http_request.headers.get("user-agent") if http_request else None,
+    )
+    db.commit()
+
     return RegisterResponse(
-        message=success_msg,
+        message="Account created successfully. Please sign in.",
         user=UserAuthResponse(
             id=new_user.id,
             email=new_user.email,
@@ -156,24 +182,14 @@ def register(request: RegisterRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/register-admin", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
-def register_admin(request: AdminRegisterRequest, db: Session = Depends(get_db)):
-    """
-    Protected invitation-based administrator account creation endpoint.
-    Validates backend invitation code before granting the 'admin' role.
-    """
+def register_admin(request: AdminRegisterRequest, db: Session = Depends(get_db), http_request: Request = None):
     if request.invitation_code != ADMIN_SIGNUP_KEY:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Invalid administrator access key."
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid administrator access key.")
 
     email_clean = request.email.strip().lower()
     existing_user = db.query(User).filter(User.email == email_clean).first()
     if existing_user:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="An account with this email already exists."
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An account with this email already exists.")
 
     admin_role = db.query(Role).filter(Role.name == "admin").first()
     if not admin_role:
@@ -184,15 +200,29 @@ def register_admin(request: AdminRegisterRequest, db: Session = Depends(get_db))
     username = generate_unique_username(email_clean, db)
     new_admin = User(
         name=request.name.strip(),
+        full_name=request.name.strip(),
         username=username,
         email=email_clean,
         password_hash=hash_password(request.password),
+        is_active=True,
     )
     new_admin.roles.append(admin_role)
 
     db.add(new_admin)
     db.commit()
     db.refresh(new_admin)
+
+    audit = create_audit_service(db)
+    audit.record(
+        action="USER_CREATED",
+        actor_user_id=new_admin.id,
+        resource_type="user",
+        resource_id=new_admin.id,
+        metadata={"email": new_admin.email, "role": "admin"},
+        ip_address=http_request.client.host if http_request and http_request.client else None,
+        user_agent=http_request.headers.get("user-agent") if http_request else None,
+    )
+    db.commit()
 
     return RegisterResponse(
         message="Administrator account created successfully. Please sign in.",
@@ -206,9 +236,6 @@ def register_admin(request: AdminRegisterRequest, db: Session = Depends(get_db))
 
 @router.get("/me", response_model=UserAuthResponse)
 def get_me(current_user: User = Depends(get_current_user)):
-    """
-    Return currently authenticated user identity and role.
-    """
     return UserAuthResponse(
         id=current_user.id,
         email=current_user.email or f"{current_user.username}@example.com",
