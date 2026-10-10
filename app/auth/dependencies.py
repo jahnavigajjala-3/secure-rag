@@ -55,16 +55,21 @@ def get_current_user(
             detail="User not found.",
             headers={"WWW-Authenticate": "Bearer"},
         )
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account is inactive.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
     return user
 
 
 def get_current_admin_user(current_user: User = Depends(get_current_user)) -> User:
     """
-    Dependency requiring Admin privileges.
-    Returns HTTP 403 Forbidden if user does not possess the 'admin' role.
+    Dependency requiring Admin privileges based on the database role graph.
     """
-    role_names = [r.name.lower() for r in current_user.roles]
+    role_names = {r.name.lower() for r in current_user.roles}
     if "admin" not in role_names:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,

@@ -1,52 +1,50 @@
 import os
 from datetime import datetime, timedelta, timezone
-from typing import Dict, Any, Optional
-import bcrypt
+from typing import Any, Dict, Optional
+
 import jwt
 
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "secure_rag_dev_jwt_secret_key_change_in_production")
-JWT_ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "60"))
+from app.config import settings
+
+JWT_SECRET_KEY = settings.JWT_SECRET_KEY
+JWT_ALGORITHM = settings.JWT_ALGORITHM
+ACCESS_TOKEN_EXPIRE_MINUTES = settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES
+
+
+def ensure_secret_config() -> str:
+    if not JWT_SECRET_KEY:
+        raise RuntimeError("JWT_SECRET_KEY is required. Set it in your environment before starting SecureRAG.")
+    if settings.is_production() and (len(JWT_SECRET_KEY) < 32 or JWT_SECRET_KEY in {"", "changeme", "secure_rag_dev_jwt_secret_key_change_in_production"}):
+        raise RuntimeError("JWT_SECRET_KEY must be set to a strong secret in production.")
+    return JWT_SECRET_KEY
 
 
 def hash_password(password: str) -> str:
-    """
-    Hash a plaintext password using bcrypt.
-    NEVER store plaintext passwords.
-    """
+    import bcrypt
+
+    if not password:
+        raise ValueError("Password must not be empty.")
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """
-    Verify a plaintext password against a stored bcrypt hash.
-    """
     if not plain_password or not hashed_password:
         return False
     try:
+        import bcrypt
         return bcrypt.checkpw(plain_password.encode("utf-8"), hashed_password.encode("utf-8"))
     except Exception:
         return False
 
 
 def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta] = None) -> str:
-    """
-    Generate a signed JWT access token containing user identity payload.
-    """
     to_encode = data.copy()
     now = datetime.now(timezone.utc)
-    if expires_delta:
-        expire = now + expires_delta
-    else:
-        expire = now + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     to_encode.update({"exp": expire, "iat": now})
-    return jwt.encode(to_encode, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    return jwt.encode(to_encode, ensure_secret_config(), algorithm=JWT_ALGORITHM)
 
 
 def decode_access_token(token: str) -> Dict[str, Any]:
-    """
-    Decode and validate JWT signature and expiration.
-    Raises PyJWT exceptions if invalid or expired.
-    """
-    return jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    return jwt.decode(token, ensure_secret_config(), algorithms=[JWT_ALGORITHM])
