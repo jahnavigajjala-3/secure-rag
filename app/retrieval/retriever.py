@@ -105,12 +105,15 @@ def retrieve(
     # Base SQL query using pgvector cosine distance operator (<=>)
     sql = """
         SELECT 
-            id,
-            document_id,
-            chunk_index,
-            content,
-            1 - (embedding <=> :query_embedding::vector) AS distance
-        FROM document_chunks
+            dc.id,
+            dc.document_id,
+            dc.chunk_index,
+            dc.content,
+            d.filename AS document_filename,
+            d.name AS document_name,
+            1 - (dc.embedding <=> CAST(:query_embedding AS vector)) AS distance
+        FROM document_chunks dc
+        JOIN documents d ON d.id = dc.document_id
     """
 
     params: Dict[str, Any] = {
@@ -119,10 +122,10 @@ def retrieve(
     }
 
     if target_doc_ids:
-        sql += " WHERE document_id = ANY(:target_doc_ids)"
+        sql += " WHERE dc.document_id = ANY(:target_doc_ids)"
         params["target_doc_ids"] = target_doc_ids
 
-    sql += " ORDER BY embedding <=> :query_embedding::vector LIMIT :top_k;"
+    sql += " ORDER BY dc.embedding <=> CAST(:query_embedding AS vector) LIMIT :top_k;"
 
     result = db.execute(text(sql), params).mappings().all()
 
@@ -131,8 +134,11 @@ def retrieve(
         row_dict = dict(row)
         dist = float(row_dict.get("distance", 0.0))
 
-        if distance_threshold is not None and dist < distance_threshold:
+        if distance_threshold is not None and dist > distance_threshold:
             continue
+
+        document_filename = row_dict.get("document_filename") or row_dict.get("document_name") or "unknown_file"
+        document_name = row_dict.get("document_name") or document_filename
 
         retrieved.append(
             {
@@ -141,6 +147,8 @@ def retrieve(
                 "distance": dist,
                 "metadata": {
                     "document_id": str(row_dict["document_id"]),
+                    "document_name": document_name,
+                    "filename": document_filename,
                     "chunk_index": row_dict["chunk_index"],
                 },
             }
