@@ -6,12 +6,11 @@ from sqlalchemy.orm import Session
 
 from app.database.models import Document, Role, User, document_roles, user_roles
 
-# Import local Hugging Face sentence-transformers model directly
+
 from sentence_transformers import SentenceTransformer
 
 logger = logging.getLogger(__name__)
 
-# Re-use your project's embedding model instance
 _embedder = SentenceTransformer("all-MiniLM-L6-v2")
 
 
@@ -100,6 +99,8 @@ def retrieve(
     Low-level vector similarity search against PostgreSQL pgvector table.
     """
     query_vector = embed_text(query)
+    # Convert list of floats to pgvector string format: "[0.123, -0.456, ...]"
+    embedding_str = f"[{','.join(map(str, query_vector))}]"
 
     # Base SQL query using pgvector cosine distance operator (<=>)
     sql = """
@@ -113,12 +114,11 @@ def retrieve(
     """
 
     params: Dict[str, Any] = {
-        "query_embedding": str(query_vector),
+        "query_embedding": embedding_str,
         "top_k": top_k,
     }
 
     if target_doc_ids:
-        # Cast string IDs if your document_id column is integer or UUID
         sql += " WHERE document_id = ANY(:target_doc_ids)"
         params["target_doc_ids"] = target_doc_ids
 
@@ -129,11 +129,9 @@ def retrieve(
     retrieved: List[Dict[str, Any]] = []
     for row in result:
         row_dict = dict(row)
-        dist = row_dict.get("distance", 0.0)
+        dist = float(row_dict.get("distance", 0.0))
 
-        # In pgvector cosine distance: distance ranges from 0 (identical) to 2.
-        # If distance_threshold is passed, filter out chunks above threshold.
-        if distance_threshold is not None and dist > distance_threshold:
+        if distance_threshold is not None and dist < distance_threshold:
             continue
 
         retrieved.append(
