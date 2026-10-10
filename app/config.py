@@ -3,7 +3,12 @@ from pathlib import Path
 from typing import List
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load the project .env file reliably
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+# Support both the project root and a frontend-local env file when the app is launched
+# from a different working directory.
+load_dotenv(Path(__file__).resolve().parents[1] / "frontend" / ".env")
 
 def _env_bool(name: str, default: bool = False) -> bool:
     value = os.getenv(name)
