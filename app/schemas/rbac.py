@@ -1,4 +1,4 @@
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 class RoleCreate(BaseModel):
@@ -12,6 +12,8 @@ class RoleResponse(BaseModel):
 
 class UserCreate(BaseModel):
     username: str
+    email: Optional[str] = None
+    full_name: Optional[str] = None
 
 class UserResponse(BaseModel):
     id: str

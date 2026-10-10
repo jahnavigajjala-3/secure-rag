@@ -8,8 +8,10 @@ class QueryRequest(BaseModel):
 
 class SourceCitation(BaseModel):
     document_id: str
-    filename: str
-    page: Optional[int] = 1
+    document_name: Optional[str] = None
+    filename: Optional[str] = None
+    page: Optional[int] = None
+    chunk_index: Optional[int] = None
     chunk_id: str
     relevance_score: float
 
