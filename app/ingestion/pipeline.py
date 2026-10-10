@@ -7,7 +7,7 @@ from app.database.models import Document
 from app.ingestion.loader import load_document
 from app.ingestion.chunker import chunk_document
 from app.ingestion.embedder import embed_texts
-from app.vectorstore.store import add_chunks
+from app.vectorstore.store import add_chunks, delete_chunks_by_document_id
 
 logger = logging.getLogger(__name__)
 
@@ -46,13 +46,20 @@ def ingest_document_by_id(
         chunks = chunk_document(raw_doc, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
 
         if chunks:
+            # If reprocessing, remove any existing vectors for this document first
+            try:
+                delete_chunks_by_document_id(doc.id)
+            except Exception:
+                # deletion failures should not block ingestion; log and continue
+                logger.warning(f"Failed to remove existing chunks for document {doc.id} before re-indexing.")
             # 4. Generate embeddings
             texts = [c["text"] for c in chunks]
             embeddings = embed_texts(texts)
 
-            # 5. Insert into ChromaDB
+            # 5. Insert into ChromaDB (upsert with stable chunk IDs)
             add_chunks(chunks, embeddings)
 
+            # Only mark chunk count after successful upsert
             doc.chunk_count = len(chunks)
         else:
             doc.chunk_count = 0
@@ -67,6 +74,7 @@ def ingest_document_by_id(
     except Exception as e:
         logger.error(f"Failed to ingest document '{doc.filename}' (ID: {doc.id}): {e}")
         doc.status = "FAILED"
+        doc.error_message = "Document processing failed. Please contact an administrator for details."
         db.commit()
         db.refresh(doc)
         raise e

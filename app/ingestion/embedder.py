@@ -1,8 +1,10 @@
+import os
 from typing import List, Union
 from sentence_transformers import SentenceTransformer
 
-MODEL_NAME = "all-MiniLM-L6-v2"
+MODEL_NAME = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 _model = None
+
 
 def get_model() -> SentenceTransformer:
     global _model
@@ -10,10 +12,11 @@ def get_model() -> SentenceTransformer:
         _model = SentenceTransformer(MODEL_NAME)
     return _model
 
+
 def embed_text(text: str) -> List[float]:
     """
     Generate embedding for a single text string.
-    Returns a 384-dimensional vector as a list of floats.
+    Returns the configured model's vector dimension as a list of floats.
     """
     model = get_model()
     embedding = model.encode(text)
@@ -21,11 +24,13 @@ def embed_text(text: str) -> List[float]:
         return embedding.tolist()
     return list(embedding)
 
+
 def embed_query(query: str) -> List[float]:
     """
     Generate embedding vector for a single query string.
     """
     return embed_text(query)
+
 
 def embed_texts(texts: List[str]) -> List[List[float]]:
     """
