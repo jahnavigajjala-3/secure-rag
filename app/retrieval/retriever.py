@@ -183,7 +183,9 @@ def retrieve_for_user(
             return []
         target_doc_ids = [str(document_id)]
     else:
-        target_doc_ids = [str(doc_id) for doc_id in allowed_doc_ids]
+        accessible_docs = db.query(Document).filter(Document.id.in_([str(doc_id) for doc_id in allowed_doc_ids])).all()
+        best_document_id = select_best_document_id(query=query, accessible_docs=accessible_docs)
+        target_doc_ids = [best_document_id] if best_document_id else [str(doc_id) for doc_id in allowed_doc_ids]
 
     if not target_doc_ids:
         return []
