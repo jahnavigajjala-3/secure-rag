@@ -1,4 +1,5 @@
 import os
+import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from google import genai
@@ -52,7 +53,7 @@ Question:
     if client:
         try:
             interaction = client.models.generate_content(
-                model="gemini-2.5-flash",
+                model="gemini-3.8-flash",
                 contents=prompt,
             )
             answer = getattr(interaction, "text", None) or str(interaction)
@@ -60,8 +61,13 @@ Question:
         except Exception as e:
             print(f"Warning: Gemini API call failed ({e}). Falling back to grounded context synthesis.")
 
-    # Grounded fallback synthesis when API key is unconfigured or offline
-    synthesis = "Based on your accessible documents:\n"
+    # Improved grounded fallback synthesis when API key is unconfigured or offline
+    combined = " ".join(context_chunks)
+    sentences = re.split(r'(?<=[.!?])\s+', combined)
+    top_sentences = [s.strip() for s in sentences if s and s.strip()][:2]
+    short_answer = " ".join(top_sentences) if top_sentences else combined[:500]
+
+    synthesis = f"LLM unavailable — grounded excerpt summary:\n{short_answer}\n\nRelevant excerpts:\n"
     for chunk in context_chunks[:5]:
         summary = chunk.strip().replace("\n", " ")
         synthesis += f"- {summary[:400]}\n"
