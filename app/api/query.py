@@ -36,7 +36,7 @@ def execute_authorized_rag_query(
     Execute end-to-end authorized RAG query pipeline:
     1. Authenticate user identity via Bearer JWT.
     2. Resolve user accessible document IDs via PostgreSQL RBAC.
-    3. Perform metadata-filtered vector retrieval in ChromaDB.
+    3. Perform metadata-filtered vector retrieval in pgvector.
     4. Generate grounded LLM answer with source citations (or pre-LLM fallback if no access/context).
     """
     if not payload.query or not payload.query.strip():
