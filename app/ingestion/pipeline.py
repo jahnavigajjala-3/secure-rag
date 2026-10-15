@@ -56,7 +56,7 @@ def ingest_document_by_id(
             texts = [c["text"] for c in chunks]
             embeddings = embed_texts(texts)
 
-            # 5. Insert into ChromaDB (upsert with stable chunk IDs)
+            # 5. Insert into pgvector (upsert with stable chunk IDs)
             add_chunks(
                 doc.id,
                 texts,
