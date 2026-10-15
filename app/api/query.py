@@ -6,6 +6,20 @@ from app.database.models import User
 from app.auth.dependencies import get_current_user
 from app.schemas.query import QueryRequest, QueryResponse
 from app.retrieval.retriever import retrieve_for_user
+import re
+
+
+def is_trivial_greeting(text: str) -> bool:
+    """Return True for short greetings where retrieval is unnecessary."""
+    if not text or not text.strip():
+        return True
+    s = text.strip().lower()
+    # pure short greetings like 'hi', 'hello', 'hii', 'hey', or 'good morning'
+    if len(s) <= 4 and re.match(r'^(hi|hey|hii|yo)$', s):
+        return True
+    if re.match(r'^(hello|good morning|good afternoon|good evening|hi there)[\.!?]?$', s):
+        return True
+    return False
 from app.generation.generator import generate_answer_with_sources
 
 router = APIRouter(prefix="/api/query", tags=["Secure RAG Query Engine"])
@@ -29,6 +43,16 @@ def execute_authorized_rag_query(
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Query string cannot be empty."
+        )
+
+    # Short-circuit for trivial greetings / small chit-chat — no retrieval needed
+    if is_trivial_greeting(payload.query):
+        return QueryResponse(
+            query=payload.query,
+            answer="Hello! I can search your authorized documents. Ask me a question about your documents or upload files to get started.",
+            sources=[],
+            grounded=False,
+            retrieved_chunk_count=0,
         )
 
     # 1. Authorized Vector Retrieval
