@@ -94,7 +94,7 @@ app.include_router(audit_router)
 
 def ingest_pipeline(data_dir: Optional[Path] = None, reset: bool = True) -> int:
     """
-    Load raw documents, split them into chunks, compute embeddings, and store in ChromaDB.
+    Load raw documents, split them into chunks, compute embeddings, and store in pgvector.
     """
     target_dir = data_dir or DATA_DIR
     print("--- Ingestion Phase ---")
@@ -117,7 +117,7 @@ def ingest_pipeline(data_dir: Optional[Path] = None, reset: bool = True) -> int:
         print("Resetting vector collection before inserting new chunks...")
         reset_collection()
 
-    print("Inserting chunks + embeddings + metadata into ChromaDB...")
+    print("Inserting chunks + embeddings + metadata into pgvector...")
     add_chunks(chunks, embeddings)
     print("Ingestion complete!\n")
     return len(chunks)
