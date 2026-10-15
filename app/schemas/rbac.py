@@ -1,4 +1,5 @@
 from typing import List, Optional
+from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 
@@ -24,7 +25,10 @@ class UserCreate(BaseModel):
 class UserResponse(BaseModel):
     id: str
     username: str
+    full_name: Optional[str] = None
     email: Optional[str] = None
+    is_active: bool = True
+    created_at: Optional[datetime] = None
     roles: List[RoleResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
