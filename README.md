@@ -10,7 +10,8 @@ Secure RAG is a demo project that implements an RBAC-aware Retrieval-Augmented G
 ## Architecture overview
 - Backend: FastAPI (app/) — handles auth, document upload, retrieval, and RAG query endpoints.
 - Generation: `app/generation/generator.py` — calls Google Gemini (if `GEMINI_API_KEY` present) and provides a local grounded fallback.
-- Retrieval: `app/retrieval` and `app/ingestion` — chunking, embedding, and Chroma/pgvector retrieval helpers.
+- Retrieval & Ingestion: `app/retrieval` and `app/ingestion` — text extraction, chunking, embedding, and pgvector retrieval.
+- Vector Store: PostgreSQL with `pgvector` (via SQLAlchemy / Supabase) — stores chunk embeddings and performs cosine distance similarity searches with RBAC document-level filtering.
 - Frontend: `frontend/` — Vite + React TypeScript SPA that talks to the backend via `/api/*`.
 
 ## Quickstart
