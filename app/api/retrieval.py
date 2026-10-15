@@ -18,7 +18,7 @@ def search_authorized_chunks(
     """
     Perform RBAC-enforced authorized retrieval for the authenticated user.
     - Resolves accessible document IDs for current user from PostgreSQL.
-    - Applies 'document_id' metadata filter to ChromaDB query.
+    - Applies 'document_id' filter to pgvector query.
     - Returns only chunks belonging to documents the user is authorized to access.
     """
     if not payload.query or not payload.query.strip():
