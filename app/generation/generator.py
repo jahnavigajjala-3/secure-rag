@@ -1,5 +1,6 @@
 import os
 import re
+import time
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from google import genai
@@ -51,27 +52,32 @@ Question:
 
     client = get_genai_client()
     if client:
-        try:
-            interaction = client.models.generate_content(
-                model="gemini-3.8-flash",
-                contents=prompt,
-            )
-            answer = getattr(interaction, "text", None) or str(interaction)
-            return answer
-        except Exception as e:
-            print(f"Warning: Gemini API call failed ({e}). Falling back to grounded context synthesis.")
+        max_retries = 3
+        backoff = 1.0
+        for attempt in range(1, max_retries + 1):
+            try:
+                interaction = client.models.generate_content(
+                    model="gemini-3.8-flash",
+                    contents=prompt,
+                )
+                answer = getattr(interaction, "text", None) or str(interaction)
+                return answer
+            except Exception as e:
+                # transient failures: retry with exponential backoff
+                if attempt < max_retries:
+                    print(f"Gemini call failed (attempt {attempt}/{max_retries}): {e}. Retrying in {backoff}s...")
+                    time.sleep(backoff)
+                    backoff *= 2
+                    continue
+                print(f"Warning: Gemini API call failed ({e}). Falling back to grounded context synthesis.")
 
-    # Improved grounded fallback synthesis when API key is unconfigured or offline
-    combined = " ".join(context_chunks)
-    sentences = re.split(r'(?<=[.!?])\s+', combined)
-    top_sentences = [s.strip() for s in sentences if s and s.strip()][:2]
-    short_answer = " ".join(top_sentences) if top_sentences else combined[:500]
-
-    synthesis = f"LLM unavailable — grounded excerpt summary:\n{short_answer}\n\nRelevant excerpts:\n"
-    for chunk in context_chunks[:5]:
-        summary = chunk.strip().replace("\n", " ")
-        synthesis += f"- {summary[:400]}\n"
-    return synthesis
+    # Clean fallback: don't dump raw chunk text to the user. Show a clear message
+    # so the UI doesn't display confusing retrieved content as the "answer".
+    return (
+        "I'm sorry, the AI model is temporarily unavailable. "
+        "Please try again in a moment. Your documents were retrieved successfully — "
+        f"{len(context_chunks)} relevant chunk(s) were found."
+    )
 
 
 def generate_answer_with_sources(query: str, retrieved_chunks: List[Dict[str, Any]]) -> Dict[str, Any]:
