@@ -70,7 +70,7 @@ export default function RegisterPage() {
       <Card className="w-full max-w-lg">
         <CardHeader>
           <CardTitle>Create an account</CardTitle>
-          <CardDescription>Use the backend’s standard employee registration flow. Access is managed by administrators.</CardDescription>
+          <CardDescription>Register as an employee, or as an admin if you have an invitation key.</CardDescription>
         </CardHeader>
         <CardContent>
           <form className="space-y-5" onSubmit={handleSubmit}>
@@ -125,16 +125,50 @@ export default function RegisterPage() {
               </div>
             </div>
 
+            {/* Account type selector */}
             <div className="space-y-2">
-              <Label htmlFor="admin_access_key">Admin access key (optional)</Label>
-              <Input
-                id="admin_access_key"
-                value={form.admin_access_key}
-                onChange={(event) => handleChange('admin_access_key', event.target.value)}
-                placeholder="Only for admin invitation flow"
-                disabled={isSubmitting}
-              />
+              <Label>Account type</Label>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => handleChange('account_type', 'employee')}
+                  disabled={isSubmitting}
+                  className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
+                    form.account_type === 'employee'
+                      ? 'border-blue-600 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Employee
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleChange('account_type', 'admin')}
+                  disabled={isSubmitting}
+                  className={`flex-1 rounded-lg border py-2 text-sm font-medium transition-colors ${
+                    form.account_type === 'admin'
+                      ? 'border-blue-600 bg-blue-50 text-blue-700'
+                      : 'border-slate-200 bg-white text-slate-600 hover:bg-slate-50'
+                  }`}
+                >
+                  Admin
+                </button>
+              </div>
             </div>
+
+            {/* Admin key — only shown when Admin is selected */}
+            {form.account_type === 'admin' && (
+              <div className="space-y-2">
+                <Label htmlFor="admin_access_key">Admin invitation key</Label>
+                <Input
+                  id="admin_access_key"
+                  value={form.admin_access_key}
+                  onChange={(event) => handleChange('admin_access_key', event.target.value)}
+                  placeholder="Enter your admin invitation key"
+                  disabled={isSubmitting}
+                />
+              </div>
+            )}
 
             <Button type="submit" className="w-full" disabled={isSubmitting}>
               {isSubmitting ? 'Creating account…' : 'Create account'}
